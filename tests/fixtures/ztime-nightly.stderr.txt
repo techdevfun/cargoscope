@@ -1,0 +1,22 @@
+# Fixture: recorded-format rustc -Ztime stderr (cargo +nightly build --timings).
+#
+# Provenance: this build machine has no cargo toolchain, so the -Ztime lines
+# below were assembled from the documented rustc -Ztime line format
+# ("time:  <secs>s  <pass>" — one line per compiler pass, printed by rustc to
+# stderr; real pass names observed on nightly include "linking", "LLVM passes",
+# "codegen passes", "attribute checking"). The parser under test depends only
+# on the line format, never on the values, so representative values are used.
+# cargo's own build lines ("Compiling", "Finished", warnings) are interleaved
+# exactly as cargo/rustc emit them, to prove they are ignored.
+   Compiling corelib v0.1.0 (/tmp/sample/corelib)
+time:   0.012s  attribute checking
+time:   0.412s  codegen passes
+time:   0.088s  LLVM passes
+time:   0.231s  linking
+warning: unused variable: `x`
+   Compiling app v0.1.0 (/tmp/sample/app)
+time:   0.009s  attribute checking
+time:   0.305s  codegen passes
+time:   0.071s  LLVM passes
+time:   0.119s  linking
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.41s
