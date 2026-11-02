@@ -20,6 +20,8 @@ export interface TimedBuild {
   stderr: string;
   exitCode: number;
   nightly: boolean;
+  /** true when -Ztime was actually passed (nightly toolchain that still supports it) */
+  ztime: boolean;
 }
 
 function timingsDir(cwd: string): string {
@@ -73,10 +75,28 @@ export async function rustcIsNightly(cwd: string): Promise<boolean> {
 }
 
 /**
+ * Does this rustc accept `-Ztime`? The flag was removed from rustc at some
+ * point (gone by 1.101.0-nightly, 2026-11-01: "unknown unstable option:
+ * `time`"), so "is nightly" no longer implies "-Ztime works". Worse, cargo
+ * forwards RUSTFLAGS to its own internal rustc probe, so passing -Ztime
+ * blindly breaks the entire build on toolchains that dropped it. Probe
+ * once; only then use the flag.
+ */
+export async function rustcSupportsZTime(cwd: string): Promise<boolean> {
+  try {
+    const r = await runProc("rustc", ["-Ztime", "--version"], { cwd }, null);
+    return r.code === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Run `cargo <cmd> --timings`, then load the newest timing JSON it produced.
- * On nightly we also pass -Ztime so the stderr carries per-pass timings
- * (including the link step); on stable the link time is not separable from
- * the binary unit's codegen+link duration — we say so instead of guessing.
+ * On nightly toolchains that still support -Ztime we also pass it, so the
+ * stderr carries per-pass timings (including the link step); otherwise the
+ * link time is not separable from the binary unit's codegen+link duration —
+ * we say so instead of guessing.
  */
 export async function timedBuild(
   env: CargoEnv,
@@ -88,7 +108,8 @@ export async function timedBuild(
   if (opts.extraArgs) args.push(...opts.extraArgs);
 
   const nightly = await rustcIsNightly(env.cwd);
-  const rustflags = nightly ? "-Ztime" : null;
+  const ztime = nightly && (await rustcSupportsZTime(env.cwd));
+  const rustflags = ztime ? "-Ztime" : null;
 
   const before = Date.now();
   const r = await runProc("cargo", args, env, rustflags);
@@ -109,12 +130,14 @@ export async function timedBuild(
     stderr: r.stderr,
     exitCode: r.code,
     nightly,
+    ztime,
   };
 }
 
 /**
  * Parse `-Ztime` stderr lines ("time:  0.123s  linking") into a map of
- * pass name -> seconds, summed across crates. Only meaningful on nightly.
+ * pass name -> seconds, summed across crates. Only meaningful when the
+ * toolchain accepted -Ztime (see rustcSupportsZTime).
  */
 export function parseZTime(stderr: string): Map<string, number> {
   const totals = new Map<string, number>();

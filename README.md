@@ -14,7 +14,9 @@ npm install -g cargoscope
 cargo cargoscope measure
 ```
 
-Requires Node 20+ and a Rust toolchain (stable is fine; nightly unlocks link-step timing via `-Ztime`).
+Requires Node 20+ and a Rust toolchain (stable is fine; a nightly toolchain that still
+supports `-Ztime` unlocks link-step timing — the flag was removed from rustc by
+1.101-nightly, and cargoscope probes support first instead of assuming it).
 
 ## 30-second tour
 
@@ -60,7 +62,10 @@ verdict: -23.2% wall time faster (14.2s -> 10.9s)
 - It does not speed up your builds. It measures. If you want the build itself to go faster without measuring first, this is the wrong tool.
 - It does not apply toolchain changes. Switching linkers or codegen backends carries real risk; the snippets are yours to review and apply.
 - Timing numbers are your machine's, your crate's, your profile's. A -23% here is not a claim about any other setup.
-- Link-step timing needs a nightly toolchain (`-Ztime`). On stable, the binary unit's duration covers codegen+link together and the report says so.
+- Link-step timing needs a nightly toolchain whose rustc still accepts `-Ztime`
+  (removed from rustc by 1.101-nightly; support is probed, never assumed).
+  Otherwise the binary unit's duration covers codegen+link together and the
+  report says so.
 - `cargo --timings` output format is not a stable API. The parser is defensive and records the tested cargo version; if cargo changes the format, `measure` fails loudly instead of guessing.
 
 ## How re-run detection works

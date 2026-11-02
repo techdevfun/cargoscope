@@ -75,7 +75,7 @@ async function doMeasure(env: CargoEnv, opts: GlobalOpts): Promise<BuildAnalysis
   const second = await timedBuild(env2, { command: "build", profile: opts.profile });
 
   const analysis = analyzeBuild(first, second);
-  if (first.nightly) {
+  if (first.ztime) {
     const passes = parseZTime(first.stderr);
     const link = passes.get("linking");
     if (link !== undefined) analysis.linkSeconds = link;

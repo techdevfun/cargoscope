@@ -1,13 +1,17 @@
-# nightly — dogfood the nightly -Ztime path end to end.
+# nightly — dogfood the nightly toolchain path end to end.
 #
-# On a nightly toolchain cargo accepts RUSTFLAGS=-Ztime, so rustc prints
-# per-pass timings ("time: 0.123s linking") to stderr. cargoscope's
-# parseZTime reads those lines and records the linking step separately.
-# This job proves that whole path works on a real nightly, not just
-# against a recorded fixture.
+# What this proves on a REAL nightly toolchain (not just a recorded fixture):
+#  1. `measure` runs the nightly branch (manifest.analysis.nightly === true).
+#  2. If this nightly's rustc still accepts -Ztime: the stderr is parsed and
+#     the link step is recorded separately (analysis.linkSeconds is a number).
+#  3. If -Ztime is gone (removed from rustc by 1.101-nightly, 2026-11-01 —
+#     cargo forwards RUSTFLAGS to its own internal rustc probe, so a blind
+#     -Ztime breaks the whole build): measure must still SUCCEED and fall
+#     back gracefully with linkSeconds null, never crash.
 #
-# Nightly toolchain drift is unrelated to per-push CI, so this job runs
-# on a daily schedule (plus manual dispatch), not on push.
+# The assertion adapts to the toolchain instead of pinning one, so the job
+# stays meaningful as nightly drifts. Runs on a daily schedule (plus manual
+# dispatch), not on push — nightly toolchain drift is unrelated to per-push CI.
 
 name: nightly-ztime
 
@@ -31,11 +35,15 @@ jobs:
           rustc -Vv
           rustc -Vv | grep -q nightly
           cargo --version
-      - name: sanity — nightly cargo writes timings directly
+      - name: probe -Ztime support on this nightly
+        id: ztime
         run: |
-          cd examples/sample-crate
-          time cargo build --timings
-          ls -la target/cargo-timings/ || echo "NO TIMINGS DIR"
+          if rustc -Ztime --version >/dev/null 2>&1; then
+            echo "supported=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "supported=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "ztime supported: $(grep supported= "$GITHUB_OUTPUT" | cut -d= -f2)"
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run build
@@ -48,15 +56,26 @@ jobs:
           cd examples/sample-crate
           cargo cargoscope measure --json /tmp/nightly/manifest.json
           test -f /tmp/nightly/manifest.json
-      - name: assert -Ztime link step was recorded
+      - name: assert the nightly branch behaved correctly
+        env:
+          ZTIME_SUPPORTED: ${{ steps.ztime.outputs.supported }}
         run: |
           node -e '
+            const assert = require("node:assert/strict");
             const fs = require("fs");
             const m = JSON.parse(fs.readFileSync("/tmp/nightly/manifest.json", "utf8"));
-            const ls = m.analysis && m.analysis.linkSeconds;
-            if (typeof ls !== "number" || !Number.isFinite(ls)) {
-              console.error("FAIL: analysis.linkSeconds missing or not a number");
-              process.exit(1);
+            const a = m.analysis;
+            // 1. the nightly branch really ran on a nightly toolchain
+            assert.equal(a.nightly, true, "expected analysis.nightly === true on a nightly toolchain");
+            const ls = a.linkSeconds;
+            if (process.env.ZTIME_SUPPORTED === "true") {
+              // 2. -Ztime accepted: link step must be recorded separately
+              assert.equal(typeof ls, "number", "expected numeric linkSeconds when -Ztime is supported");
+              assert.ok(Number.isFinite(ls), "linkSeconds must be finite");
+              console.log("nightly -Ztime linkSeconds:", ls);
+            } else {
+              // 3. -Ztime removed: graceful fallback, no crash, linkSeconds stays null
+              assert.equal(ls, null, "expected linkSeconds null when -Ztime is unsupported");
+              console.log("nightly without -Ztime: measure succeeded, linkSeconds null (graceful fallback)");
             }
-            console.log("nightly -Ztime linkSeconds:", ls);
           '
