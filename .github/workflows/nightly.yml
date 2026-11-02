@@ -30,6 +30,12 @@ jobs:
         run: |
           rustc -Vv
           rustc -Vv | grep -q nightly
+          cargo --version
+      - name: sanity — nightly cargo writes timings directly
+        run: |
+          cd examples/sample-crate
+          time cargo build --timings
+          ls -la target/cargo-timings/ || echo "NO TIMINGS DIR"
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run build
