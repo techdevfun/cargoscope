@@ -59,14 +59,20 @@ The tool never changes your toolchain. Verify every fix with compare.`);
 }
 
 async function doMeasure(env: CargoEnv, opts: GlobalOpts): Promise<BuildAnalysis> {
+  // CARGOSCOPE_BUILD_SEQ distinguishes the two builds for build scripts that
+  // declare `cargo:rerun-if-env-changed=CARGOSCOPE_BUILD_SEQ` (used by the
+  // fixture crate to deterministically exercise re-run detection; harmless
+  // for real crates since no other script declares it).
+  const env1: CargoEnv = { cwd: env.cwd, extraEnv: { ...env.extraEnv, CARGOSCOPE_BUILD_SEQ: "1" } };
+  const env2: CargoEnv = { cwd: env.cwd, extraEnv: { ...env.extraEnv, CARGOSCOPE_BUILD_SEQ: "2" } };
   console.error("cargoscope: timed build (1/2) ...");
-  const first = await timedBuild(env, { command: "build", profile: opts.profile });
+  const first = await timedBuild(env1, { command: "build", profile: opts.profile });
   if (first.exitCode !== 0) {
     console.error(first.stderr.split("\n").slice(-5).join("\n"));
     throw new Error(`cargo build failed (exit ${first.exitCode})`);
   }
   console.error("cargoscope: no-change rebuild (2/2) ...");
-  const second = await timedBuild(env, { command: "build", profile: opts.profile });
+  const second = await timedBuild(env2, { command: "build", profile: opts.profile });
 
   const analysis = analyzeBuild(first, second);
   if (first.nightly) {

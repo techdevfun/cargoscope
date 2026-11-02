@@ -67,6 +67,8 @@ verdict: -23.2% wall time faster (14.2s -> 10.9s)
 
 `measure` runs cargo twice: once timed, once as a no-change rebuild. Cargo omits fresh-skipped units from the timing report, so a build-script-run unit that appears with real duration in the second build was genuinely executed again with no source changes — its freshness is broken (typically a script that rewrites its own `rerun-if-changed` inputs). This is measured, not inferred from the script source.
 
+The two builds run with `CARGOSCOPE_BUILD_SEQ=1` and `CARGOSCOPE_BUILD_SEQ=2` in the environment, so a build script can declare `cargo:rerun-if-env-changed=CARGOSCOPE_BUILD_SEQ` to deterministically exercise the re-run path (the bundled fixture crate does this). Harmless for real crates: scripts that don't declare the variable are unaffected.
+
 ## Where the alternatives win
 
 - **[cargo-blaze](https://github.com/indexable-inc/blaze)** wins if in-place recompilation fits your workflow — it actually makes rebuilds faster instead of measuring them. It is a young, invasive bet (replaces the compiler driver); cargoscope complements it (it can measure blaze's own delta).
