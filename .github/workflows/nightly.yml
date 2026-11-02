@@ -1,0 +1,56 @@
+# nightly — dogfood the nightly -Ztime path end to end.
+#
+# On a nightly toolchain cargo accepts RUSTFLAGS=-Ztime, so rustc prints
+# per-pass timings ("time: 0.123s linking") to stderr. cargoscope's
+# parseZTime reads those lines and records the linking step separately.
+# This job proves that whole path works on a real nightly, not just
+# against a recorded fixture.
+#
+# Nightly toolchain drift is unrelated to per-push CI, so this job runs
+# on a daily schedule (plus manual dispatch), not on push.
+
+name: nightly-ztime
+
+on:
+  schedule:
+    # 03:30 UTC ~= 10:30 ICT, once daily
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: confirm nightly toolchain
+        run: |
+          rustc -Vv
+          rustc -Vv | grep -q nightly
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
+      - name: dogfood — measure the fixture crate on nightly
+        run: |
+          mkdir -p /tmp/nightly/bin
+          printf '#!/bin/sh\nexec node "%s" "$@"\n' "$GITHUB_WORKSPACE/dist/index.js" > /tmp/nightly/bin/cargo-cargoscope
+          chmod +x /tmp/nightly/bin/cargo-cargoscope
+          export PATH="/tmp/nightly/bin:$PATH"
+          cd examples/sample-crate
+          cargo cargoscope measure --json /tmp/nightly/manifest.json
+          test -f /tmp/nightly/manifest.json
+      - name: assert -Ztime link step was recorded
+        run: |
+          node -e '
+            const fs = require("fs");
+            const m = JSON.parse(fs.readFileSync("/tmp/nightly/manifest.json", "utf8"));
+            const ls = m.analysis && m.analysis.linkSeconds;
+            if (typeof ls !== "number" || !Number.isFinite(ls)) {
+              console.error("FAIL: analysis.linkSeconds missing or not a number");
+              process.exit(1);
+            }
+            console.log("nightly -Ztime linkSeconds:", ls);
+          '
