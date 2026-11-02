@@ -1,0 +1,102 @@
+$ cargo cargoscope --version
+0.1.0
+$ cargo cargoscope measure --json before.json
+
+cargoscope measure — profile dev (stable)
+  wall time:        0.7s
+  units compiled:   5 (3 did real work)
+  sum unit time:    0.6s (overlaps; parallel builds)
+
+where the time goes (top crates):
+  app 0.1.0 [bin]                                  0.2s   30% ██████░░░░░░░░░░░░░░
+  slowdep 0.2.0 [lib]                              0.1s   11% ██░░░░░░░░░░░░░░░░░░
+  corelib 0.1.0 [lib]                              0.1s    7% █░░░░░░░░░░░░░░░░░░░
+
+final binary (codegen+link): 0.2s
+  link step not separable on stable — the bin unit's duration covers codegen+link together
+
+build scripts:
+  corelib: compile 0.3s, run 0.0s  <-- RE-RUNS ON EVERY BUILD
+
+run `cargoscope recommend` for ranked fixes, then `cargoscope compare` to verify.
+cargoscope: timed build (1/2) ...
+cargoscope: no-change rebuild (2/2) ...
+cargoscope: manifest written to before.json
+$ cargo cargoscope recommend --from before.json
+
+recommendations (cheapest first — the tool changes nothing; you apply these):
+
+1. [free] Use `cargo check` for the edit/compile loop
+   Type checking catches most errors without running codegen or the linker at all.
+   gain: Skips the entire codegen+link phase. On this crate that phase is part of the binary units; the win is biggest when your loop is edit -> check -> test, and zero when you already do this.
+   snippet:
+     # put this in .cargo/config.toml (or ~/.cargo/config.toml)
+     [alias]
+     checkfast = "check --all-targets"
+
+2. [free] Fix 1 build script(s) that re-run on every build
+   A build script with no rerun-if-changed directives re-runs on every single build, invalidating everything downstream. Emit precise directives.
+   gain: Removes the script's run time AND the recompile cascade it forces on every no-change build. Measured on your crate by running measure twice.
+   snippet:
+     # in your build.rs — tell cargo exactly what to watch
+     fn main() {
+         println!("cargo:rerun-if-changed=build.rs");
+         println!("cargo:rerun-if-changed=src/");
+         // list ONLY the files/inputs the script reads; never rerun-if-changed=*
+     }
+
+3. [install] Switch the linker to mold (Linux)
+   mold/lld replace the default GNU ld link step. Only the link step changes; compiled code is identical.
+   gain: The final link is typically the single slowest step for large binaries. Only helps if link dominates — check the codegen+link share in the measure output first.
+   snippet:
+     # .cargo/config.toml — Linux only, needs mold + clang installed
+     [target.x86_64-unknown-linux-gnu]
+     linker = "clang"
+     rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+4. [install] Share compilation with sccache
+   A compiler cache: identical crates are reused across workspaces, branches and CI machines.
+   gain: Near-zero on a single warm machine; large on CI and when switching branches. Does not change what gets compiled, only skips repeats.
+   snippet:
+     # shell — install sccache, then share the cache across builds/CI
+     #   cargo install sccache   (or: apt install sccache / brew install sccache)
+     export RUSTC_WRAPPER=sccache
+     export SCCACHE_DIR="$HOME/.cache/sccache"
+
+After applying: run `cargoscope measure --json after.json`, then `cargoscope compare before.json after.json`.
+# fix applied: build.rs now declares rerun-if-changed
+$ cargo cargoscope measure --json after.json
+
+cargoscope measure — profile dev (stable)
+  wall time:        0.7s
+  units compiled:   4 (3 did real work)
+  sum unit time:    0.6s (overlaps; parallel builds)
+
+where the time goes (top crates):
+  app 0.1.0 [bin]                                  0.3s   41% ████████░░░░░░░░░░░░
+  corelib 0.1.0 [lib]                              0.1s   10% ██░░░░░░░░░░░░░░░░░░
+
+final binary (codegen+link): 0.3s
+  link step not separable on stable — the bin unit's duration covers codegen+link together
+
+build scripts:
+  corelib: compile 0.3s, run 0.0s
+
+run `cargoscope recommend` for ranked fixes, then `cargoscope compare` to verify.
+cargoscope: timed build (1/2) ...
+cargoscope: no-change rebuild (2/2) ...
+cargoscope: manifest written to after.json
+$ cargo cargoscope compare before.json after.json
+
+before/after
+  wall:   0.7s -> 0.7s  (-6.6%)
+  units:  5 -> 4
+
+biggest wins (seconds saved):
+  -   0.1s  slowdep (lib)
+
+biggest losses (seconds added):
+  +   0.1s  app (bin)
+  +   0.0s  corelib (lib)
+
+verdict: -6.6% wall time faster (0.7s -> 0.7s)

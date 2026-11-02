@@ -1,0 +1,10 @@
+[package]
+name = "corelib"
+version = "0.1.0"
+edition = "2021"
+links = "corelib_native"
+build = "build.rs"
+
+[lib]
+name = "corelib"
+path = "src/lib.rs"

@@ -1,0 +1,3 @@
+[workspace]
+members = ["app", "corelib", "slowdep"]
+resolver = "2"
