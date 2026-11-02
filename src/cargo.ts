@@ -84,7 +84,11 @@ export async function rustcIsNightly(cwd: string): Promise<boolean> {
  */
 export async function rustcSupportsZTime(cwd: string): Promise<boolean> {
   try {
-    const r = await runProc("rustc", ["-Ztime", "--version"], { cwd }, null);
+    // NOTE: --version short-circuits before -Z validation, so it cannot be
+    // used as the probe; --print does go through option parsing (verified:
+    // cargo's own `rustc - --print=file-names -Ztime` probe fails on
+    // toolchains without the flag).
+    const r = await runProc("rustc", ["-Ztime", "--print=sysroot"], { cwd }, null);
     return r.code === 0;
   } catch {
     return false;
@@ -117,8 +121,12 @@ export async function timedBuild(
 
   const path = newestTimingsFile(env.cwd);
   if (!path) {
+    // Fail loudly with cargo's own words: a missing report with a zero exit
+    // is otherwise indistinguishable from a silent no-op.
+    const tail = r.stderr.trim().split("\n").slice(-10).join("\n");
     throw new Error(
-      "cargo did not write a timings report (expected target/cargo-timings/cargo-timing-*.html)"
+      `cargo did not write a timings report (expected target/cargo-timings/cargo-timing-*.html; cargo exit code ${r.code})` +
+        (tail ? `\n--- cargo stderr (tail) ---\n${tail}` : "\n(cargo printed nothing on stderr)")
     );
   }
   const units = parseTimingsHtml(readFileSync(path, "utf8"));
