@@ -19,20 +19,29 @@ interface GlobalOpts {
   from: string | null;
 }
 
-function parseArgs(argv: string[]): { cmd: string; rest: string[]; opts: GlobalOpts } {
+export function parseArgs(argv: string[]): { cmd: string; rest: string[]; opts: GlobalOpts } {
   // cargo calls us as `cargo-cargoscope cargoscope <args>` — strip the echo
   const args = argv[0] === "cargoscope" ? argv.slice(1) : argv;
   const opts: GlobalOpts = { jsonOut: null, profile: "dev", nightlyOk: false, from: null };
   const rest: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === "--json") opts.jsonOut = args[++i] ?? null;
-    else if (a === "--profile") opts.profile = args[++i] ?? "dev";
-    else if (a === "--nightly-ok") opts.nightlyOk = true;
-    else if (a === "--from") opts.from = args[++i] ?? null;
+    // cargo users habitually write --flag=value (cargo itself accepts
+    // --profile=release); accept it for the value-taking flags.
+    let name = a;
+    let inline: string | null = null;
+    const eq = a.startsWith("--") ? a.indexOf("=") : -1;
+    if (eq !== -1) {
+      name = a.slice(0, eq);
+      inline = a.slice(eq + 1);
+    }
+    if (name === "--json") opts.jsonOut = inline ?? args[++i] ?? null;
+    else if (name === "--profile") opts.profile = inline ?? args[++i] ?? "dev";
+    else if (name === "--nightly-ok" && inline === null) opts.nightlyOk = true;
+    else if (name === "--from") opts.from = inline ?? args[++i] ?? null;
     else if (a === "--version" || a === "-V") return { cmd: "version", rest, opts };
     else if (a === "--help" || a === "-h") return { cmd: "help", rest, opts };
-    else if (a.startsWith("-")) throw new Error(`unknown flag: ${a}`);
+    else if (name.startsWith("-")) throw new Error(`unknown flag: ${a}`);
     else rest.push(a);
   }
   const cmd = rest.shift() ?? "help";
