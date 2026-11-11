@@ -82,6 +82,10 @@ async function doMeasure(env: CargoEnv, opts: GlobalOpts): Promise<BuildAnalysis
   }
   console.error("cargoscope: no-change rebuild (2/2) ...");
   const second = await timedBuild(env2, { command: "build", profile: opts.profile });
+  if (second.exitCode !== 0) {
+    console.error(second.stderr.split("\n").slice(-5).join("\n"));
+    throw new Error(`cargo rebuild failed (exit ${second.exitCode})`);
+  }
 
   const analysis = analyzeBuild(first, second);
   if (first.ztime) {
